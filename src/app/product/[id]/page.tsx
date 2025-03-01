@@ -3,10 +3,18 @@ import { notFound } from 'next/navigation';
 import type { Product } from '@/app/lib/types';
 
 async function getProduct(id: string): Promise<Product> {
-  const baseUrl = process.env.NODE_ENV === 'production' ? process.env.NEXT_PUBLIC_API_URL || 'https://itoll-task.vercel.app/api' : 'http://localhost:3000/api';
-  const res = await fetch(`${baseUrl}/products/${id}`);
-  if (!res.ok) notFound();
-  return res.json();
+  try {
+    const baseUrl = process.env.NODE_ENV === 'production' 
+      ? process.env.NEXT_PUBLIC_API_URL || 'https://itoll-task.vercel.app/api' 
+      : 'http://localhost:3000/api';
+    
+    const res = await fetch(`${baseUrl}/products/${id}`, {cache: 'default'});
+    
+    if (!res.ok) throw new Error('Product not found');
+    return res.json();
+  } catch (error) {
+    notFound();
+  }
 }
 
 export default async function ProductPage({ params }: { params: { id: string } }) {

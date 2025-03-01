@@ -1,26 +1,47 @@
 import { precacheAndRoute } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
-import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
+import { CacheFirst, StaleWhileRevalidate, NetworkFirst } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
 
 precacheAndRoute(self.__WB_MANIFEST);
 
 
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open('offline-fallbacks').then((cache) => {
+      return cache.add('/offline').catch(err => console.log('Failed to cache offline page', err));
+    })
+  );
+});
+
+
 registerRoute(
   ({ request }) => request.mode === 'navigate',
-  new StaleWhileRevalidate({
-    cacheName: 'pages',
-    plugins: [
-      new CacheableResponsePlugin({
-        statuses: [200],
-      }),
-    ],
-    networkTimeoutSeconds: 3,
-    async fetchDidFail() {
-      return caches.match('/offline');
+  async (options) => {
+    try { 
+      const response = await fetch(options.request);
+      const cache = await caches.open('pages');
+      await cache.put(options.request, response.clone());
+      return response;
+    } catch (error) {
+      const url = new URL(options.request.url);
+      if (url.pathname.startsWith('/product/')) {
+        const cachedResponse = await caches.match(options.request);
+        if (cachedResponse) return cachedResponse;
+      }
+      
+      const fallbackResponse = await caches.match('/offline');
+      if (fallbackResponse) {
+        return fallbackResponse;
+      } 
+      
+      return new Response('You are offline. Please check your connection.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/html' },
+      });
     }
-  })
+  }
 );
 
 
@@ -39,7 +60,6 @@ registerRoute(
   })
 );
 
-
 registerRoute(
   ({ request }) => request.destination === 'image',
   new CacheFirst({
@@ -56,10 +76,9 @@ registerRoute(
   })
 );
 
-
 registerRoute(
   ({ url }) => url.pathname.startsWith('/api/'),
-  new StaleWhileRevalidate({
+  new NetworkFirst({
     cacheName: 'api-cache',
     plugins: [
       new CacheableResponsePlugin({
@@ -68,6 +87,22 @@ registerRoute(
       new ExpirationPlugin({
         maxEntries: 100,
         maxAgeSeconds: 60 * 60 * 24,
+      }),
+    ],
+  })
+);
+
+registerRoute(
+  ({ url }) => url.pathname.match(/\/api\/products\/\d+$/),
+  new NetworkFirst({
+    cacheName: 'product-api-cache',
+    plugins: [
+      new CacheableResponsePlugin({
+        statuses: [200],
+      }),
+      new ExpirationPlugin({
+        maxEntries: 50,
+        maxAgeSeconds: 60 * 60 * 24 * 7,
       }),
     ],
   })
